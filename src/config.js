@@ -8,6 +8,21 @@ const fs = require('fs');
 const barberInfoPath = path.join(__dirname, '../knowledge/barberInfo.json');
 const barberInfo = JSON.parse(fs.readFileSync(barberInfoPath, 'utf8'));
 
+// Config override desde Railway volume (permite cambiar sin redeploy)
+const overridePath = '/data/barberConfig.json';
+if (fs.existsSync(overridePath)) {
+  try {
+    const overrides = JSON.parse(fs.readFileSync(overridePath, 'utf8'));
+    // Solo sobreescribir claves seguras (no business.name puede cambiar, horarios sí)
+    if (overrides.schedule) barberInfo.schedule = { ...barberInfo.schedule, ...overrides.schedule };
+    if (overrides.messages) barberInfo.messages = { ...barberInfo.messages, ...overrides.messages };
+    if (overrides.services) barberInfo.services = overrides.services;
+    console.log('[config] Override aplicado desde', overridePath);
+  } catch (e) {
+    console.warn('[config] Override inválido, usando config base:', e.message);
+  }
+}
+
 const config = {
   port: parseInt(process.env.PORT || '3000'),
   nodeEnv: process.env.NODE_ENV || 'development',

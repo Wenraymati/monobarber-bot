@@ -116,6 +116,39 @@ function scheduleDailySeed() {
 }
 scheduleDailySeed();
 
+// Backup diario a las 6am Santiago (UTC-3 = 9 UTC) — mismo horario que seed
+const { runDailyBackup } = require('./backup/dailyBackup');
+function scheduleDailyBackup() {
+  const now = new Date();
+  const next = new Date(now);
+  next.setUTCHours(9, 5, 0, 0); // 5 min después del seed
+  if (next <= now) next.setDate(next.getDate() + 1);
+  const ms = next.getTime() - now.getTime();
+  setTimeout(() => {
+    runDailyBackup();
+    scheduleDailyBackup();
+  }, ms);
+}
+scheduleDailyBackup();
+
+// Reporte semanal: lunes 9am Santiago (UTC-3 = 12 UTC)
+const { sendWeeklyReport } = require('./notifications/weeklyReport');
+function scheduleWeeklyReport() {
+  const now = new Date();
+  const next = new Date(now);
+  // Calcular próximo lunes a las 12 UTC
+  const daysUntilMonday = (1 - now.getUTCDay() + 7) % 7 || 7;
+  next.setDate(now.getDate() + daysUntilMonday);
+  next.setUTCHours(12, 0, 0, 0);
+  if (next <= now) next.setDate(next.getDate() + 7);
+  const ms = next.getTime() - now.getTime();
+  setTimeout(() => {
+    sendWeeklyReport();
+    scheduleWeeklyReport();
+  }, ms);
+}
+scheduleWeeklyReport();
+
 // ── Start server ──────────────────────────────────────────────────────────────
 const port = config.port;
 app.listen(port, () => {
