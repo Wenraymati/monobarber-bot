@@ -30,16 +30,32 @@ async function handleMessage(waId, text, session) {
   const state = session ? session.state : STATES.IDLE;
   const ctx = session ? (session.context_json || {}) : {};
 
-  // ── Global: CANCELAR desde cualquier estado cancela la reserva activa ────────
-  if (isCancelCommand(text) && state !== STATES.IDLE && state !== STATES.MAIN_MENU) {
+  // ── Global: CANCELAR desde cualquier estado ───────────────────────────────────
+  // Si está a mitad de un flujo, cancela el flujo Y la reserva activa si existe.
+  // Si está en IDLE/MAIN_MENU, cancela la reserva activa si existe, o informa que no hay ninguna.
+  if (isCancelCommand(text)) {
     const booking = db.getActiveBooking(waId);
     if (booking) {
       db.cancelBooking(booking.id);
       db.markSlotAvailable(booking.date, booking.time);
+      return {
+        reply: config.barber.messages.cancelled_ok,
+        newState: STATES.IDLE,
+        newContext: {},
+      };
     }
+    // Sin reserva activa — informar y volver al menú solo si estaba en un flujo
+    if (state !== STATES.IDLE && state !== STATES.MAIN_MENU) {
+      return {
+        reply: config.barber.messages.no_booking + '\n\n' + getMainMenuText(),
+        newState: STATES.MAIN_MENU,
+        newContext: {},
+      };
+    }
+    // En IDLE/MAIN_MENU sin reserva activa
     return {
-      reply: config.barber.messages.cancelled_ok,
-      newState: STATES.IDLE,
+      reply: config.barber.messages.no_booking + '\n\n' + getMainMenuText(),
+      newState: STATES.MAIN_MENU,
       newContext: {},
     };
   }
