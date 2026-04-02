@@ -142,6 +142,26 @@ function isGreeting(text) {
   return /^(hola|hi|buenas|buenos|buen|hey|ola|inicio|menu|start|menú)$/i.test((text || '').trim());
 }
 
+/**
+ * Verifica si el mensaje es una confirmación afirmativa.
+ * Acepta: si, sí, yes, ok, confirmar, 1 (case insensitive)
+ * @param {string} text
+ * @returns {boolean}
+ */
+function isConfirmCommand(text) {
+  return /^(s[íi]|yes|ok|confirmar|1)$/i.test((text || '').trim());
+}
+
+/**
+ * Verifica si el mensaje es una negación o rechazo.
+ * Acepta: no, cancelar, 2 (case insensitive)
+ * @param {string} text
+ * @returns {boolean}
+ */
+function isDenyCommand(text) {
+  return /^(no|cancelar|2)$/i.test((text || '').trim());
+}
+
 module.exports = {
   STATES,
   getNextBusinessDays,
@@ -154,4 +174,6 @@ module.exports = {
   parseSelection,
   isCancelCommand,
   isGreeting,
+  isConfirmCommand,
+  isDenyCommand,
 };

@@ -14,6 +14,8 @@ const {
   parseSelection,
   isCancelCommand,
   isGreeting,
+  isConfirmCommand,
+  isDenyCommand,
 } = require('./bookingFlow');
 const { notifyOwner } = require('../notifications/ownerAlert');
 const { handleFaq } = require('./faqHandler');
@@ -183,10 +185,8 @@ async function handleMessage(waId, text, session) {
     }
 
     case STATES.CONFIRMING_BOOKING: {
-      const sel = parseSelection(text, 2);
-
-      if (sel === 0) {
-        // 1 = Confirmar
+      if (isConfirmCommand(text)) {
+        // Confirmar reserva
         // Verificar que el slot sigue disponible
         const stillAvailable = db.getAvailableSlots(ctx.selectedDate)
           .some(s => s.time === ctx.selectedTime);
@@ -226,8 +226,8 @@ async function handleMessage(waId, text, session) {
         };
       }
 
-      if (sel === 1) {
-        // 2 = Cambiar fecha/hora
+      if (isDenyCommand(text)) {
+        // Cambiar fecha/hora
         const days = getNextBusinessDays(6);
         return {
           reply: 'Sin problema, ¿qué día preferís?\n\n' + getDateSelectionText(days),
