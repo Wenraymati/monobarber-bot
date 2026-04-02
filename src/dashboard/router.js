@@ -20,7 +20,7 @@ router.get('/login', (req, res) => {
   const error = req.query.error ? '<p style="color:#e55;margin:0">Contraseña incorrecta</p>' : '';
   res.send(`
     <!DOCTYPE html>
-    <html><head><meta charset="UTF-8"><title>Monobarber Dashboard</title>
+    <html><head><meta charset="UTF-8"><title>BarberDaniel's Dashboard</title>
     <meta name="viewport" content="width=device-width,initial-scale=1">
     <style>
       *{box-sizing:border-box}
@@ -33,7 +33,7 @@ router.get('/login', (req, res) => {
     </style>
     </head><body>
     <form method="POST" action="/dashboard/login">
-      <h2>💈 Monobarber</h2>
+      <h2>💈 BarberDaniel's</h2>
       ${error}
       <input type="password" name="token" placeholder="Contraseña" required autofocus>
       <button type="submit">Entrar</button>
@@ -193,7 +193,7 @@ function buildDashboardHTML(days, clients = []) {
   return `<!DOCTYPE html>
 <html lang="es"><head>
 <meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>💈 Monobarber — Agenda</title>
+<title>💈 BarberDaniel's — Agenda</title>
 <style>
   * { box-sizing: border-box; margin: 0; padding: 0; }
   body { font-family: system-ui, sans-serif; background: #1a1a1a; color: #e0e0e0; padding: 1rem; }
@@ -216,12 +216,25 @@ function buildDashboardHTML(days, clients = []) {
   .empty { color: #555; font-style: italic; font-size: 0.9rem; padding: 0.5rem 0; }
   .section { margin-bottom: 1.75rem; }
   .count-badge { background: #d4a944; color: #1a1a1a; font-weight: 700; padding: 0.1rem 0.5rem; border-radius: 10px; font-size: 0.8rem; margin-left: 0.5rem; }
+  @media (max-width: 600px) {
+    body { padding: 0.75rem; }
+    h1 { font-size: 1.2rem; }
+    table, thead, tbody, th, td, tr { display: block; }
+    thead tr { display: none; }
+    td { padding: 0.4rem 0.75rem; border: none; }
+    td:first-child { padding-top: 0.75rem; font-weight: 600; color: #d4a944; font-size: 1rem; }
+    td:last-child { padding-bottom: 0.75rem; border-bottom: 1px solid #333; }
+    tr { background: #222; border-radius: 8px; margin-bottom: 0.5rem; }
+    tr:hover td { background: #222; }
+    .header-stat { font-size: 0.8rem; }
+  }
 </style>
 </head>
 <body>
 <header>
-  <h1>💈 Monobarber — Próximos 7 días</h1>
+  <h1>💈 BarberDaniel's — Próximos 7 días</h1>
   <div class="header-stat">Hoy: <strong>${todayCount}</strong> reserva${todayCount !== 1 ? 's' : ''}</div>
+  <a href="/dashboard?token=${config.dashboard.token}" class="header-stat" style="text-decoration:none;cursor:pointer;font-size:0.75rem;color:#777" title="Link directo">🔗 link directo</a>
 </header>
 
 ${sectionsHTML}
