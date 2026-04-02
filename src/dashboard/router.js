@@ -52,22 +52,49 @@ router.post('/login', express.urlencoded({ extended: false }), (req, res) => {
   }
 });
 
-// GET /dashboard — agenda principal
-router.get('/', authMiddleware, (req, res) => {
-  const today = new Date().toISOString().slice(0, 10);
-  const todayBookings = db.getBookingsForDay(today);
+// Build an array of { date, label, count, bookings } for the next `days` days starting today
+function buildAgendaDays(daysCount) {
+  const DAYS_ES = ['Dom', 'Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb'];
+  const MONTHS_ES = ['ene', 'feb', 'mar', 'abr', 'may', 'jun', 'jul', 'ago', 'sep', 'oct', 'nov', 'dic'];
 
-  // Próximos 3 días
-  const upcoming = [];
-  for (let i = 1; i <= 3; i++) {
-    const d = new Date();
-    d.setDate(d.getDate() + i);
-    const dateStr = d.toISOString().slice(0, 10);
-    const bookings = db.getBookingsForDay(dateStr);
-    if (bookings.length > 0) upcoming.push({ date: dateStr, bookings });
+  const today = new Date();
+  // Use local date parts to avoid UTC-offset drift
+  const pad = n => String(n).padStart(2, '0');
+  const toDateStr = d =>
+    `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+
+  const startDate = toDateStr(today);
+  const endDay = new Date(today);
+  endDay.setDate(endDay.getDate() + daysCount - 1);
+  const endDate = toDateStr(endDay);
+
+  // Single DB query for the whole range
+  const allBookings = db.getBookingsByDateRange(startDate, endDate);
+
+  // Group by date
+  const byDate = {};
+  for (const b of allBookings) {
+    if (!byDate[b.date]) byDate[b.date] = [];
+    byDate[b.date].push(b);
   }
 
-  res.send(buildDashboardHTML(today, todayBookings, upcoming));
+  const result = [];
+  for (let i = 0; i < daysCount; i++) {
+    const d = new Date(today);
+    d.setDate(d.getDate() + i);
+    const dateStr = toDateStr(d);
+    const bookings = byDate[dateStr] || [];
+    const dayName = i === 0 ? 'Hoy' : i === 1 ? 'Mañana' : DAYS_ES[d.getDay()];
+    const label = `${dayName} ${d.getDate()} ${MONTHS_ES[d.getMonth()]}`;
+    result.push({ date: dateStr, label, count: bookings.length, bookings });
+  }
+  return result;
+}
+
+// GET /dashboard — agenda principal (7 dias)
+router.get('/', authMiddleware, (req, res) => {
+  const days = buildAgendaDays(7);
+  res.send(buildDashboardHTML(days));
 });
 
 // POST /dashboard/api/cancel/:id — cancelar reserva desde dashboard
@@ -80,32 +107,55 @@ router.post('/api/cancel/:id', authMiddleware, express.json(), (req, res) => {
   res.json({ ok: true });
 });
 
-// GET /dashboard/api/today — JSON de reservas de hoy (para integración externa)
+// GET /dashboard/api/today — backward-compatible: JSON de reservas de hoy
 router.get('/api/today', authMiddleware, (req, res) => {
-  const today = new Date().toISOString().slice(0, 10);
+  const pad = n => String(n).padStart(2, '0');
+  const now = new Date();
+  const today = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`;
   const bookings = db.getBookingsForDay(today);
   res.json({ date: today, count: bookings.length, bookings });
 });
 
-function buildDashboardHTML(today, todayBookings, upcoming) {
-  const rows = todayBookings.map(b => `
-    <tr>
-      <td><strong>${b.time}</strong></td>
-      <td>${b.client_name || '<em>Sin nombre</em>'}</td>
-      <td><span class="badge ${b.status}">${b.status === 'confirmed' ? 'Confirmado' : b.status}</span></td>
-      <td class="reminders">${b.reminded_24h ? '✅' : '⏳'} / ${b.reminded_1h ? '✅' : '⏳'}</td>
-      <td><button onclick="cancelBooking(${b.id})" class="btn-cancel">Cancelar</button></td>
-    </tr>
-  `).join('');
+// GET /dashboard/api/agenda — JSON de los proximos 7 dias
+router.get('/api/agenda', authMiddleware, (req, res) => {
+  const days = buildAgendaDays(7);
+  res.json({ days });
+});
 
-  const upcomingHTML = upcoming.map(({ date, bookings }) => `
-    <div class="upcoming-day">
-      <h3>${date}</h3>
-      <div class="slots">
-        ${bookings.map(b => `<div class="slot"><strong>${b.time}</strong> — ${b.client_name || 'Sin nombre'}</div>`).join('')}
-      </div>
-    </div>
-  `).join('');
+function buildDashboardHTML(days) {
+  const sectionsHTML = days.map((day, idx) => {
+    const isToday = idx === 0;
+    const headingClass = isToday ? 'day-heading day-today' : 'day-heading';
+
+    const rows = day.bookings.map(b => `
+      <tr>
+        <td><strong>${b.time}</strong></td>
+        <td>${b.client_name || '<em>Sin nombre</em>'}</td>
+        <td><span class="badge ${b.status}">${b.status === 'confirmed' ? 'Confirmado' : b.status}</span></td>
+        <td class="reminders">${b.reminded_24h ? '✅' : '⏳'} / ${b.reminded_1h ? '✅' : '⏳'}</td>
+        <td><button onclick="cancelBooking(${b.id})" class="btn-cancel">Cancelar</button></td>
+      </tr>
+    `).join('');
+
+    const tableOrEmpty = day.bookings.length === 0
+      ? '<p class="empty">Sin reservas</p>'
+      : `<table>
+          <thead><tr>
+            <th>Hora</th><th>Cliente</th><th>Estado</th>
+            <th>Recordat. 24h/1h</th><th></th>
+          </tr></thead>
+          <tbody>${rows}</tbody>
+         </table>`;
+
+    return `
+      <div class="section">
+        <h2 class="${headingClass}">
+          ${day.label}
+          ${day.count > 0 ? `<span class="count-badge">${day.count}</span>` : ''}
+        </h2>
+        ${tableOrEmpty}
+      </div>`;
+  }).join('');
 
   return `<!DOCTYPE html>
 <html lang="es"><head>
@@ -116,8 +166,8 @@ function buildDashboardHTML(today, todayBookings, upcoming) {
   body { font-family: system-ui, sans-serif; background: #1a1a1a; color: #e0e0e0; padding: 1rem; }
   header { display: flex; align-items: center; gap: 0.5rem; margin-bottom: 1.5rem; }
   h1 { color: #d4a944; font-size: 1.5rem; }
-  h2 { color: #aaa; font-size: 0.9rem; font-weight: 400; margin: 1rem 0 0.5rem; text-transform: uppercase; letter-spacing: 0.05em; }
-  h3 { color: #888; font-size: 0.85rem; margin-bottom: 0.4rem; }
+  h2.day-heading { color: #aaa; font-size: 0.9rem; font-weight: 400; margin: 1rem 0 0.5rem; text-transform: uppercase; letter-spacing: 0.05em; }
+  h2.day-today { color: #d4a944; font-weight: 600; }
   table { width: 100%; border-collapse: collapse; font-size: 0.9rem; }
   th { background: #2a2a2a; padding: 0.6rem 0.75rem; text-align: left; color: #d4a944; font-size: 0.8rem; text-transform: uppercase; }
   td { padding: 0.6rem 0.75rem; border-bottom: 1px solid #2a2a2a; }
@@ -129,39 +179,16 @@ function buildDashboardHTML(today, todayBookings, upcoming) {
   .btn-cancel { background: #5c1a1a; color: #e0a0a0; border: none; padding: 0.3rem 0.6rem; border-radius: 4px; cursor: pointer; font-size: 0.8rem; }
   .btn-cancel:hover { background: #7a2020; }
   .empty { color: #555; font-style: italic; font-size: 0.9rem; padding: 0.5rem 0; }
-  .upcoming-day { margin-bottom: 1rem; }
-  .slots { display: flex; flex-wrap: wrap; gap: 0.4rem; }
-  .slot { padding: 0.35rem 0.7rem; background: #2a2a2a; border-radius: 4px; font-size: 0.85rem; }
-  .section { margin-bottom: 2rem; }
+  .section { margin-bottom: 1.75rem; }
   .count-badge { background: #d4a944; color: #1a1a1a; font-weight: 700; padding: 0.1rem 0.5rem; border-radius: 10px; font-size: 0.8rem; margin-left: 0.5rem; }
 </style>
 </head>
 <body>
 <header>
-  <h1>💈 Monobarber</h1>
+  <h1>💈 Monobarber — Próximos 7 días</h1>
 </header>
 
-<div class="section">
-  <h2>Agenda de hoy — ${today} <span class="count-badge">${todayBookings.length}</span></h2>
-  ${todayBookings.length === 0
-    ? '<p class="empty">Sin reservas para hoy</p>'
-    : `<table>
-        <thead><tr>
-          <th>Hora</th><th>Cliente</th><th>Estado</th>
-          <th>Recordat. 24h/1h</th><th></th>
-        </tr></thead>
-        <tbody>${rows}</tbody>
-       </table>`
-  }
-</div>
-
-<div class="section">
-  <h2>Próximos días</h2>
-  ${upcoming.length === 0
-    ? '<p class="empty">Sin reservas en los próximos 3 días</p>'
-    : upcomingHTML
-  }
-</div>
+${sectionsHTML}
 
 <script>
 async function cancelBooking(id) {

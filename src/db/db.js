@@ -87,6 +87,17 @@ function getBookingsForDay(date) {
     .all(date);
 }
 
+// Returns all confirmed bookings between startDate and endDate inclusive (YYYY-MM-DD strings),
+// ordered by date then time. Used by the dashboard 7-day agenda.
+function getBookingsByDateRange(startDate, endDate) {
+  return getDb()
+    .prepare(`SELECT * FROM bookings
+              WHERE status = 'confirmed'
+              AND date BETWEEN ? AND ?
+              ORDER BY date, time`)
+    .all(startDate, endDate);
+}
+
 function getUpcomingBookingsNeedingReminder(windowStart, windowEnd, reminderField) {
   const col = reminderField === 'reminded_24h' ? 'reminded_24h' : 'reminded_1h';
   return getDb()
@@ -167,6 +178,7 @@ module.exports = {
   getActiveBooking,
   cancelBooking,
   getBookingsForDay,
+  getBookingsByDateRange,
   getUpcomingBookingsNeedingReminder,
   markReminderSent,
   getSessionFromDb,
