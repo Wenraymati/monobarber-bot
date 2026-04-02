@@ -16,6 +16,7 @@ const {
   isGreeting,
 } = require('./bookingFlow');
 const { notifyOwner } = require('../notifications/ownerAlert');
+const { handleFaq } = require('./faqHandler');
 
 /**
  * Procesa un mensaje entrante y retorna { reply, newState, newContext }
@@ -261,6 +262,15 @@ async function handleText(waId, text, messageId) {
 
   await withSessionLock(waId, async () => {
     const session = getSession(waId);
+    const state = session ? session.state : 'IDLE';
+
+    // ── FAQ fallback: only intercept when user is not mid-booking flow ───────────
+    const isIdleState = state === 'IDLE' || state === 'MAIN_MENU';
+    if (isIdleState) {
+      const sendFn = (id, msg) => sendText(id, msg, messageId);
+      const handled = await handleFaq(waId, text, sendFn);
+      if (handled) return;
+    }
 
     try {
       const result = await handleMessage(waId, text, session);
