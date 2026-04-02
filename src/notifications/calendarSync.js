@@ -1,12 +1,11 @@
 'use strict';
 
-const { google } = require('googleapis');
-
 // Retorna null si no está configurado — no crashea el bot
 function getCalendarClient() {
   const { GOOGLE_SERVICE_ACCOUNT_JSON, GOOGLE_CALENDAR_ID } = process.env;
   if (!GOOGLE_SERVICE_ACCOUNT_JSON || !GOOGLE_CALENDAR_ID) return null;
   try {
+    const { google } = require('googleapis');
     const creds = JSON.parse(GOOGLE_SERVICE_ACCOUNT_JSON);
     const auth = new google.auth.GoogleAuth({
       credentials: creds,
