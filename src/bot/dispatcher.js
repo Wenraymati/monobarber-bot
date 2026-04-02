@@ -17,8 +17,9 @@ const {
   isConfirmCommand,
   isDenyCommand,
 } = require('./bookingFlow');
-const { notifyOwner } = require('../notifications/ownerAlert');
+const { notifyOwner, notifyOwnerCancellation } = require('../notifications/ownerAlert');
 const { handleFaq } = require('./faqHandler');
+const { createCalendarEvent, deleteCalendarEvent } = require('../notifications/calendarSync');
 
 /**
  * Procesa un mensaje entrante y retorna { reply, newState, newContext }
@@ -38,6 +39,19 @@ async function handleMessage(waId, text, session) {
     if (booking) {
       db.cancelBooking(booking.id);
       db.markSlotAvailable(booking.date, booking.time);
+
+      // Notificar al dueño de la cancelación (fire-and-forget)
+      notifyOwnerCancellation({
+        clientName: booking.client_name,
+        date: booking.date,
+        time: booking.time,
+      });
+
+      // Eliminar evento de Google Calendar si existe (fire-and-forget)
+      if (booking.calendar_event_id) {
+        deleteCalendarEvent(booking.calendar_event_id).catch(() => {});
+      }
+
       return {
         reply: config.barber.messages.cancelled_ok,
         newState: STATES.IDLE,
@@ -72,7 +86,8 @@ async function handleMessage(waId, text, session) {
   switch (state) {
     case STATES.IDLE:
     case STATES.MAIN_MENU: {
-      const sel = parseSelection(text, 3);
+      // Menú ahora tiene 4 opciones: 1=Reservar, 2=Ver reserva, 3=Reprogramar, 4=Cancelar
+      const sel = parseSelection(text, 4);
 
       if (sel === 0) {
         // 1 = Reservar hora
@@ -106,7 +121,7 @@ async function handleMessage(waId, text, session) {
       }
 
       if (sel === 2) {
-        // 3 = Cancelar turno
+        // 3 = Reprogramar turno
         const booking = db.getActiveBooking(waId);
         if (!booking) {
           return {
@@ -115,8 +130,59 @@ async function handleMessage(waId, text, session) {
             newContext: {},
           };
         }
+
+        // Cancelar reserva actual y liberar slot
         db.cancelBooking(booking.id);
         db.markSlotAvailable(booking.date, booking.time);
+
+        // Notificar al dueño de la cancelación por reprogramación (fire-and-forget)
+        notifyOwnerCancellation({
+          clientName: booking.client_name,
+          date: booking.date,
+          time: booking.time,
+        });
+
+        // Eliminar evento de Google Calendar si existe (fire-and-forget)
+        if (booking.calendar_event_id) {
+          deleteCalendarEvent(booking.calendar_event_id).catch(() => {});
+        }
+
+        // Redirigir al flujo de selección de fecha, preservando el nombre si lo tenemos
+        const days = getNextBusinessDays(6);
+        const savedName = booking.client_name || null;
+        return {
+          reply: `Sin problema, ¿qué día preferís para reagendar?\n\n` + getDateSelectionText(days),
+          newState: STATES.SELECTING_DATE,
+          newContext: { days, clientName: savedName },
+        };
+      }
+
+      if (sel === 3) {
+        // 4 = Cancelar turno
+        const booking = db.getActiveBooking(waId);
+        if (!booking) {
+          return {
+            reply: config.barber.messages.no_booking + '\n\n' + getMainMenuText(),
+            newState: STATES.MAIN_MENU,
+            newContext: {},
+          };
+        }
+
+        db.cancelBooking(booking.id);
+        db.markSlotAvailable(booking.date, booking.time);
+
+        // Notificar al dueño de la cancelación (fire-and-forget)
+        notifyOwnerCancellation({
+          clientName: booking.client_name,
+          date: booking.date,
+          time: booking.time,
+        });
+
+        // Eliminar evento de Google Calendar si existe (fire-and-forget)
+        if (booking.calendar_event_id) {
+          deleteCalendarEvent(booking.calendar_event_id).catch(() => {});
+        }
+
         return {
           reply: config.barber.messages.cancelled_ok,
           newState: STATES.IDLE,
@@ -176,6 +242,17 @@ async function handleMessage(waId, text, session) {
       }
 
       const selectedTime = slots[sel];
+
+      // Si viene de una reprogramación y tenemos el nombre, saltar directo a confirmación
+      if (ctx.clientName) {
+        const newCtx = { ...ctx, selectedTime };
+        return {
+          reply: getConfirmationText(newCtx),
+          newState: STATES.CONFIRMING_BOOKING,
+          newContext: newCtx,
+        };
+      }
+
       return {
         reply: '¿Cuál es tu nombre para la reserva? ✍️',
         newState: STATES.CAPTURING_NAME,
@@ -217,7 +294,7 @@ async function handleMessage(waId, text, session) {
         }
 
         // Guardar reserva
-        db.createBooking({
+        const bookingId = db.createBooking({
           waId,
           clientName: ctx.clientName,
           serviceId: 'corte',
@@ -228,12 +305,19 @@ async function handleMessage(waId, text, session) {
 
         const confirmMsg = `✅ ¡Reserva confirmada, ${ctx.clientName}!\n\n📅 ${formatDate(ctx.selectedDate)} — ${ctx.selectedTime}\n📍 ${config.barber.business.address}\n💈 ${config.barber.business.name}\n\nTe recordaremos antes de tu cita 🔔\nPara cancelar escribí *CANCELAR*`;
 
-        // Notificar al dueño (sin await para no bloquear la respuesta al cliente)
+        // Notificar al dueño (fire-and-forget)
         notifyOwner({
           clientName: ctx.clientName,
           date: ctx.selectedDate,
           time: ctx.selectedTime,
         });
+
+        // Google Calendar sync (fire-and-forget)
+        createCalendarEvent({ clientName: ctx.clientName, date: ctx.selectedDate, time: ctx.selectedTime })
+          .then(eventId => {
+            if (eventId) db.saveCalendarEventId(bookingId, eventId);
+          })
+          .catch(() => {}); // silencioso
 
         return {
           reply: confirmMsg,
@@ -281,14 +365,16 @@ async function handleText(waId, text, messageId) {
     const state = session ? session.state : 'IDLE';
 
     // ── FAQ fallback: only intercept when user is not mid-booking flow ───────────
+    // Bug fix: incluido dentro del try/catch para capturar errores de Gemini u otros
     const isIdleState = state === 'IDLE' || state === 'MAIN_MENU';
-    if (isIdleState) {
-      const sendFn = (id, msg) => sendText(id, msg, messageId);
-      const handled = await handleFaq(waId, text, sendFn);
-      if (handled) return;
-    }
 
     try {
+      if (isIdleState) {
+        const sendFn = (id, msg) => sendText(id, msg, messageId);
+        const handled = await handleFaq(waId, text, sendFn);
+        if (handled) return;
+      }
+
       const result = await handleMessage(waId, text, session);
 
       // Actualizar sesión

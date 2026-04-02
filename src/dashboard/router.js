@@ -94,7 +94,8 @@ function buildAgendaDays(daysCount) {
 // GET /dashboard — agenda principal (7 dias)
 router.get('/', authMiddleware, (req, res) => {
   const days = buildAgendaDays(7);
-  res.send(buildDashboardHTML(days));
+  const clients = db.getFrequentClients(10);
+  res.send(buildDashboardHTML(days, clients));
 });
 
 // POST /dashboard/api/cancel/:id — cancelar reserva desde dashboard
@@ -122,7 +123,16 @@ router.get('/api/agenda', authMiddleware, (req, res) => {
   res.json({ days });
 });
 
-function buildDashboardHTML(days) {
+// GET /dashboard/api/clients — clientes frecuentes
+router.get('/api/clients', authMiddleware, (req, res) => {
+  const clients = db.getFrequentClients(10);
+  res.json({ clients });
+});
+
+function buildDashboardHTML(days, clients = []) {
+  // Total reservas hoy
+  const todayCount = days[0] ? days[0].count : 0;
+
   const sectionsHTML = days.map((day, idx) => {
     const isToday = idx === 0;
     const headingClass = isToday ? 'day-heading day-today' : 'day-heading';
@@ -157,6 +167,29 @@ function buildDashboardHTML(days) {
       </div>`;
   }).join('');
 
+  // Sección clientes frecuentes
+  const clientRows = clients.map(c => `
+    <tr>
+      <td><strong>${c.visits}</strong></td>
+      <td>${c.client_name || '<em>Desconocido</em>'}</td>
+      <td>${c.last_visit || '—'}</td>
+    </tr>
+  `).join('');
+
+  const clientsSection = `
+    <div class="section">
+      <h2 class="day-heading">Clientes frecuentes</h2>
+      ${clients.length === 0
+        ? '<p class="empty">Sin datos aún</p>'
+        : `<table>
+            <thead><tr>
+              <th>Visitas</th><th>Nombre</th><th>Último turno</th>
+            </tr></thead>
+            <tbody>${clientRows}</tbody>
+           </table>`
+      }
+    </div>`;
+
   return `<!DOCTYPE html>
 <html lang="es"><head>
 <meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
@@ -164,8 +197,10 @@ function buildDashboardHTML(days) {
 <style>
   * { box-sizing: border-box; margin: 0; padding: 0; }
   body { font-family: system-ui, sans-serif; background: #1a1a1a; color: #e0e0e0; padding: 1rem; }
-  header { display: flex; align-items: center; gap: 0.5rem; margin-bottom: 1.5rem; }
+  header { display: flex; align-items: center; gap: 1rem; margin-bottom: 1.5rem; flex-wrap: wrap; }
   h1 { color: #d4a944; font-size: 1.5rem; }
+  .header-stat { background: #2a2a2a; border-radius: 8px; padding: 0.4rem 0.9rem; font-size: 0.85rem; color: #aaa; }
+  .header-stat strong { color: #d4a944; font-size: 1.1rem; }
   h2.day-heading { color: #aaa; font-size: 0.9rem; font-weight: 400; margin: 1rem 0 0.5rem; text-transform: uppercase; letter-spacing: 0.05em; }
   h2.day-today { color: #d4a944; font-weight: 600; }
   table { width: 100%; border-collapse: collapse; font-size: 0.9rem; }
@@ -186,9 +221,12 @@ function buildDashboardHTML(days) {
 <body>
 <header>
   <h1>💈 Monobarber — Próximos 7 días</h1>
+  <div class="header-stat">Hoy: <strong>${todayCount}</strong> reserva${todayCount !== 1 ? 's' : ''}</div>
 </header>
 
 ${sectionsHTML}
+
+${clientsSection}
 
 <script>
 async function cancelBooking(id) {

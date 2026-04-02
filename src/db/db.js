@@ -23,6 +23,11 @@ function initDb(dbPath) {
   const schema = fs.readFileSync(schemaPath, 'utf8');
   db.exec(schema);
 
+  // Migración incremental: columna calendar_event_id (ignorar si ya existe)
+  try {
+    db.exec('ALTER TABLE bookings ADD COLUMN calendar_event_id TEXT');
+  } catch (_) {}
+
   console.log('[db] Inicializada en', resolvedPath);
   return db;
 }
@@ -116,6 +121,14 @@ function markReminderSent(bookingId, reminderField) {
     .run(bookingId);
 }
 
+// --- Calendar sync ---
+
+function saveCalendarEventId(bookingId, eventId) {
+  getDb()
+    .prepare('UPDATE bookings SET calendar_event_id = ? WHERE id = ?')
+    .run(eventId, bookingId);
+}
+
 // --- Sessions ---
 
 function getSessionFromDb(waId) {
@@ -167,6 +180,23 @@ function setSetting(key, value) {
     .run(key, String(value));
 }
 
+// --- Analytics ---
+
+/**
+ * Retorna los clientes más frecuentes por número de visitas confirmadas.
+ * @param {number} limit
+ */
+function getFrequentClients(limit = 10) {
+  return getDb()
+    .prepare(`SELECT wa_id, client_name, COUNT(*) as visits, MAX(date) as last_visit
+              FROM bookings
+              WHERE status = 'confirmed'
+              GROUP BY wa_id
+              ORDER BY visits DESC
+              LIMIT ?`)
+    .all(limit);
+}
+
 module.exports = {
   initDb,
   getDb,
@@ -181,10 +211,12 @@ module.exports = {
   getBookingsByDateRange,
   getUpcomingBookingsNeedingReminder,
   markReminderSent,
+  saveCalendarEventId,
   getSessionFromDb,
   upsertSession,
   getActiveSessions,
   cleanupSessions,
   getSetting,
   setSetting,
+  getFrequentClients,
 };

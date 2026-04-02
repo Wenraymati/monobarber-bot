@@ -20,4 +20,16 @@ function notifyOwner({ clientName, date, time }) {
   });
 }
 
-module.exports = { notifyOwner };
+/**
+ * Notifica al peluquero cuando un cliente cancela su turno.
+ * Fire-and-forget — no bloquea el flujo del cliente.
+ */
+function notifyOwnerCancellation({ clientName, date, time }) {
+  if (!config.owner.waNumber) return;
+  const msg = `⚠️ *Cancelación en Monobarber*\n\n👤 Cliente: ${clientName || 'desconocido'}\n📅 ${date} — ${time}\n\n💈 El turno quedó disponible nuevamente.`;
+  sendText(config.owner.waNumber, msg).catch(err => {
+    console.error('[ownerAlert] Error notificando cancelación:', err.message);
+  });
+}
+
+module.exports = { notifyOwner, notifyOwnerCancellation };

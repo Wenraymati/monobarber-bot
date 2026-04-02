@@ -20,7 +20,7 @@
     { "id": "barba", "name": "Arreglo de barba", "price": 6000 }
   ],
   "messages": {
-    "greeting": "Hola 👋 Soy el asistente de *Monobarber* 💈\n\n¿Qué necesitás?\n\n1️⃣ Reservar hora\n2️⃣ Ver mi reserva\n3️⃣ Cancelar turno",
+    "greeting": "Hola 👋 Soy el asistente de *Monobarber* 💈\n\n¿Qué necesitás?\n\n1️⃣ Reservar hora\n2️⃣ Ver mi reserva\n3️⃣ Reprogramar turno\n4️⃣ Cancelar turno",
     "no_availability": "Lo siento, no hay horarios disponibles para ese día. Probá con otro día 📅",
     "cancelled_ok": "✅ Tu reserva fue cancelada. ¡Hasta pronto!",
     "no_booking": "No encontré ninguna reserva activa con tu número."
